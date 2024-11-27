@@ -1,0 +1,57 @@
+@@@ Palindrome
+
+# Read input string
+echo "Enter a string:"
+read input
+
+# Reverse the string
+reversed=$(echo "$input" | rev)
+
+# Check if the input and reversed strings are the same
+if [ "$input" == "$reversed" ]; then
+    echo "The string '$input' is a palindrome."
+else
+    echo "The string '$input' is not a palindrome."
+fi
+
+
+
+@@@ Perform Insertion
+
+# Read two numbers
+echo "Enter the first number:"
+read num1
+echo "Enter the second number:"
+read num2
+
+# Perform arithmetic operations
+sum=$((num1 + num2))
+difference=$((num1 - num2))
+product=$((num1 * num2))
+quotient=$((num1 / num2))
+remainder=$((num1 % num2))
+
+# Display the results
+echo "Results:"
+echo "Addition: $num1 + $num2 = $sum"
+echo "Subtraction: $num1 - $num2 = $difference"
+echo "Multiplication: $num1 * $num2 = $product"
+echo "Division: $num1 / $num2 = $quotient"
+echo "Modulus: $num1 % $num2 = $remainder"
+
+
+@@@ number of Occurances
+
+# Read input string and character
+echo "Enter a string:"
+read input_string
+echo "Enter the character to count:"
+read char
+
+# Count occurrences
+count=$(echo -n "$input_string" | grep -o "$char" | wc -l)
+
+# Display result
+echo "The character '$char' appears $count times in the string."
+
+

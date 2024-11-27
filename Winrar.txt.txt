@@ -1,0 +1,879 @@
+# READERS_WRITERS_SEMAPHORES
+
+#include <stdio.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>
+
+sem_t mutex, wrt;
+int read_count = 0;
+int data = 0; // Shared resource
+
+void *writer(void *arg) {
+    int writer_id = *((int *)arg);
+    
+    sem_wait(&wrt);  // Wait for the writer semaphore
+    data++;  // Writing (modify the shared data)
+    printf("Writer %d is writing, data = %d\n", writer_id, data);
+    sleep(1);  // Simulate writing time
+    sem_post(&wrt);  // Release writer semaphore
+}
+
+void *reader(void *arg) {
+    int reader_id = *((int *)arg);
+    
+    sem_wait(&mutex);  // Mutex to update read count
+    read_count++;
+    if (read_count == 1) {
+        sem_wait(&wrt);  // First reader locks the writer semaphore
+    }
+    sem_post(&mutex);  // Release mutex
+    
+    printf("Reader %d is reading, data = %d\n", reader_id, data);  // Reading
+    sleep(1);  // Simulate reading time
+    
+    sem_wait(&mutex);  // Mutex to update read count
+    read_count--;
+    if (read_count == 0) {
+        sem_post(&wrt);  // Last reader releases the writer semaphore
+    }
+    sem_post(&mutex);  // Release mutex
+}
+
+int main() {
+    pthread_t readers[5], writers[2];
+    int reader_ids[5], writer_ids[2];
+    
+    sem_init(&mutex, 0, 1);  // Initialize mutex semaphore to 1
+    sem_init(&wrt, 0, 1);    // Initialize writer semaphore to 1
+    
+    for (int i = 0; i < 5; i++) {
+        reader_ids[i] = i + 1;
+        pthread_create(&readers[i], NULL, reader, &reader_ids[i]);
+    }
+    for (int i = 0; i < 2; i++) {
+        writer_ids[i] = i + 1;
+        pthread_create(&writers[i], NULL, writer, &writer_ids[i]);
+    }
+    
+    for (int i = 0; i < 5; i++) {
+        pthread_join(readers[i], NULL);
+    }
+    for (int i = 0; i < 2; i++) {
+        pthread_join(writers[i], NULL);
+    }
+    
+    sem_destroy(&mutex);
+    sem_destroy(&wrt);
+    
+    return 0;
+}
+
+# READERS_WRITERS_MUTEX
+
+
+#include <stdio.h>
+#include <pthread.h>
+#include <unistd.h>
+
+pthread_mutex_t mutex, wrt;
+int read_count = 0;
+int data = 0; // Shared resource
+
+void *writer(void *arg) {
+    int writer_id = *((int *)arg);
+    
+    pthread_mutex_lock(&wrt);  // Writer locks the wrt mutex
+    data++;  // Writing (modify the shared data)
+    printf("Writer %d is writing, data = %d\n", writer_id, data);
+    sleep(1);  // Simulate writing time
+    pthread_mutex_unlock(&wrt);  // Writer unlocks the wrt mutex
+}
+
+void *reader(void *arg) {
+    int reader_id = *((int *)arg);
+    
+    pthread_mutex_lock(&mutex);  // Mutex to update read count
+    read_count++;
+    if (read_count == 1) {
+        pthread_mutex_lock(&wrt);  // First reader locks the writer
+    }
+    pthread_mutex_unlock(&mutex);  // Release the mutex
+    
+    printf("Reader %d is reading, data = %d\n", reader_id, data);  // Reading
+    sleep(1);  // Simulate reading time
+    
+    pthread_mutex_lock(&mutex);  // Mutex to update read count
+    read_count--;
+    if (read_count == 0) {
+        pthread_mutex_unlock(&wrt);  // Last reader unlocks the writer
+    }
+    pthread_mutex_unlock(&mutex);  // Release the mutex
+}
+
+int main() {
+    pthread_t readers[5], writers[2];
+    int reader_ids[5], writer_ids[2];
+    
+    pthread_mutex_init(&mutex, NULL);  // Initialize the mutex
+    pthread_mutex_init(&wrt, NULL);    // Initialize the wrt mutex
+    
+    for (int i = 0; i < 5; i++) {
+        reader_ids[i] = i + 1;
+        pthread_create(&readers[i], NULL, reader, &reader_ids[i]);
+    }
+    for (int i = 0; i < 2; i++) {
+        writer_ids[i] = i + 1;
+        pthread_create(&writers[i], NULL, writer, &writer_ids[i]);
+    }
+    
+    for (int i = 0; i < 5; i++) {
+        pthread_join(readers[i], NULL);
+    }
+    for (int i = 0; i < 2; i++) {
+        pthread_join(writers[i], NULL);
+    }
+    
+    pthread_mutex_destroy(&mutex);
+    pthread_mutex_destroy(&wrt);
+    
+    return 0;
+}
+
+########### PRODUCER_CONSUMER_SEMAPHORE
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <unistd.h>  // For sleep()
+
+#define BUFFER_SIZE 5    // Size of the buffer
+#define TOTAL_ITEMS 10   // Total items to produce and consume
+
+int buffer[BUFFER_SIZE];
+int in = 0, out = 0;     // Buffer indices
+int itemCount = 0;       // Track the number of items produced and consumed
+
+// Semaphores
+sem_t empty, full, mutex;
+
+void *producer(void *arg) {
+    int item;
+    for (int i = 0; i < TOTAL_ITEMS; i++) {
+        item = rand() % 100;  // Produce an item
+        sem_wait(&empty);      // Decrease empty count (wait if no empty slot)
+        sem_wait(&mutex);      // Lock the buffer
+
+        // Add the item to the buffer
+        buffer[in] = item;
+        printf("Produced: %d\n", item);
+        in = (in + 1) % BUFFER_SIZE;
+        itemCount++;
+
+        sem_post(&mutex);      // Release the buffer
+        sem_post(&full);       // Increase full count (signal consumer)
+
+        sleep(1);  // Simulate time taken to produce an item
+    }
+    pthread_exit(NULL);  // Exit when done producing
+}
+
+void *consumer(void *arg) {
+    int item;
+    for (int i = 0; i < TOTAL_ITEMS; i++) {
+        sem_wait(&full);       // Decrease full count (wait if no full slot)
+        sem_wait(&mutex);      // Lock the buffer
+
+        // Remove the item from the buffer
+        item = buffer[out];
+        printf("Consumed: %d\n", item);
+        out = (out + 1) % BUFFER_SIZE;
+        itemCount--;
+
+        sem_post(&mutex);      // Release the buffer
+        sem_post(&empty);      // Increase empty count (signal producer)
+
+        sleep(1);  // Simulate time taken to consume an item
+    }
+    pthread_exit(NULL);  // Exit when done consuming
+}
+
+int main() {
+    pthread_t prod, cons;
+
+    // Initialize the semaphores
+    sem_init(&empty, 0, BUFFER_SIZE); // Initial empty slots = BUFFER_SIZE
+    sem_init(&full, 0, 0);            // Initial full slots = 0
+    sem_init(&mutex, 0, 1);           // Mutex starts as unlocked
+
+    // Create producer and consumer threads
+    pthread_create(&prod, NULL, producer, NULL);
+    pthread_create(&cons, NULL, consumer, NULL);
+
+    // Wait for both threads to finish
+    pthread_join(prod, NULL);
+    pthread_join(cons, NULL);
+
+    // Destroy semaphores
+    sem_destroy(&empty);
+    sem_destroy(&full);
+    sem_destroy(&mutex);
+
+    return 0;
+}
+
+
+
+########### PRODUCER_CONSUMER_MUTEX
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>  // For sleep()
+
+#define BUFFER_SIZE 5      // Size of the buffer
+#define TOTAL_ITEMS 10     // Total items to be produced and consumed
+
+int buffer[BUFFER_SIZE];
+int in = 0, out = 0;
+int count = 0;             // Number of items in the buffer
+int produced = 0;          // Number of items produced
+int consumed = 0;          // Number of items consumed
+
+pthread_mutex_t mutex;
+pthread_cond_t cond_empty, cond_full;
+
+void *producer(void *arg) {
+    int item;
+    while (produced < TOTAL_ITEMS) {   // Terminate after TOTAL_ITEMS produced
+        item = rand() % 100;           // Produce an item
+        pthread_mutex_lock(&mutex);    // Lock the buffer
+
+        // Wait if buffer is full
+        while (count == BUFFER_SIZE) {
+            pthread_cond_wait(&cond_empty, &mutex);
+        }
+
+        // Add the item to the buffer
+        buffer[in] = item;
+        printf("Produced: %d\n", item);
+        in = (in + 1) % BUFFER_SIZE;
+        count++;
+        produced++;  // Increment the produced count
+
+        // Signal that buffer is not empty
+        pthread_cond_signal(&cond_full);
+        pthread_mutex_unlock(&mutex);  // Unlock the buffer
+
+        sleep(1);  // Simulate time taken to produce an item
+    }
+
+    pthread_exit(NULL);  // Exit when done producing
+}
+
+void *consumer(void *arg) {
+    int item;
+    while (consumed < TOTAL_ITEMS) {   // Terminate after TOTAL_ITEMS consumed
+        pthread_mutex_lock(&mutex);    // Lock the buffer
+
+        // Wait if buffer is empty
+        while (count == 0) {
+            pthread_cond_wait(&cond_full, &mutex);
+        }
+
+        // Remove the item from the buffer
+        item = buffer[out];
+        printf("Consumed: %d\n", item);
+        out = (out + 1) % BUFFER_SIZE;
+        count--;
+        consumed++;  // Increment the consumed count
+
+        // Signal that buffer is not full
+        pthread_cond_signal(&cond_empty);
+        pthread_mutex_unlock(&mutex);  // Unlock the buffer
+
+        sleep(1);  // Simulate time taken to consume an item
+    }
+
+    pthread_exit(NULL);  // Exit when done consuming
+}
+
+int main() {
+    pthread_t prod, cons;
+
+    // Initialize mutex and condition variables
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&cond_empty, NULL);
+    pthread_cond_init(&cond_full, NULL);
+
+    // Create producer and consumer threads
+    pthread_create(&prod, NULL, producer, NULL);
+    pthread_create(&cons, NULL, consumer, NULL);
+
+    // Wait for both threads to finish
+    pthread_join(prod, NULL);
+    pthread_join(cons, NULL);
+
+    // Destroy mutex and condition variables
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cond_empty);
+    pthread_cond_destroy(&cond_full);
+
+    return 0;
+}
+
+
+
+
+
+
+###### Page Replacement FIFO
+
+#include <stdio.h>
+
+int main() {
+    int frames[10], pages[30], num_frames, num_pages, i, j, k, page_faults = 0;
+    int oldest = 0; // Variable to keep track of the oldest frame (for FIFO replacement)
+
+    // Prompt user to enter the number of frames
+    printf("Enter number of frames: ");
+    scanf("%d", &num_frames);
+
+    // Prompt user to enter the number of pages
+    printf("Enter number of pages: ");
+    scanf("%d", &num_pages);
+
+    // Input the page reference string
+    printf("Enter page reference string: ");
+    for (i = 0; i < num_pages; i++)
+        scanf("%d", &pages[i]);
+
+    // Initialize all frames to -1 to indicate they are empty
+    for (i = 0; i < num_frames; i++)
+        frames[i] = -1;
+
+    // Print the table header for page replacement process visualization
+    printf("\nPage Reference | Frames");
+    printf("\n---------------|------------------");
+
+    // Iterate through each page in the reference string
+    for (i = 0; i < num_pages; i++) {
+        int found = 0; // Flag to check if the page is already in a frame
+
+        // Check if the current page is already in one of the frames
+        for (j = 0; j < num_frames; j++) {
+            if (frames[j] == pages[i]) { // Page found in a frame
+                found = 1; // Set the flag to indicate no page fault
+                break;
+            }
+        }
+
+        // If the page is not found in any frame (page fault occurs)
+        if (!found) {
+            frames[oldest] = pages[i]; // Replace the oldest frame with the new page
+            oldest = (oldest + 1) % num_frames; // Update the oldest pointer using FIFO
+            page_faults++; // Increment the page fault count
+        }
+
+        // Print the current page and the state of the frames
+        printf("\n%12d |", pages[i]);
+        for (k = 0; k < num_frames; k++) {
+            if (frames[k] != -1) // Print the frame's content if it's not empty
+                printf(" %d", frames[k]);
+            else // Print '-' for empty frames
+                printf(" -");
+        }
+    }
+
+    // Print the total number of page faults at the end
+    printf("\n\nTotal Page Faults = %d\n", page_faults);
+
+    return 0; // End of the program
+}
+
+
+
+
+###### Page Replacement LRU
+
+#include <stdio.h>
+
+// Function to find the Least Recently Used (LRU) frame
+int findLRU(int time[], int n) {
+    int i, minimum = time[0], pos = 0;
+
+    // Find the frame with the smallest usage time
+    for (i = 1; i < n; ++i) {
+        if (time[i] < minimum) {
+            minimum = time[i];
+            pos = i; // Update position of the least recently used frame
+        }
+    }
+    return pos; // Return index of the least recently used frame
+}
+
+int main() {
+    int frames[10], pages[30], time[10]; // Arrays to store frames, pages, and usage times
+    int num_frames, num_pages, i, j, pos, page_faults = 0, counter = 0;
+
+    // Prompt user to enter the number of frames
+    printf("Enter number of frames: ");
+    scanf("%d", &num_frames);
+
+    // Prompt user to enter the number of pages
+    printf("Enter number of pages: ");
+    scanf("%d", &num_pages);
+
+    // Input the page reference string
+    printf("Enter page reference string: ");
+    for (i = 0; i < num_pages; i++)
+        scanf("%d", &pages[i]);
+
+    // Initialize all frames as empty and time array to 0
+    for (i = 0; i < num_frames; i++) {
+        frames[i] = -1;  // -1 indicates the frame is empty
+        time[i] = 0;     // Time array tracks the last usage of each frame
+    }
+
+    // Print the header for the output table
+    printf("\nPage Reference | Frames");
+    printf("\n---------------|------------------");
+
+    // Loop through each page in the reference string
+    for (i = 0; i < num_pages; i++) {
+        int found = 0; // Flag to check if the page is already in a frame
+
+        // Check if the page is already in one of the frames
+        for (j = 0; j < num_frames; j++) {
+            if (frames[j] == pages[i]) { // Page found in a frame
+                found = 1;              // Set flag to indicate no page fault
+                time[j] = ++counter;    // Update the usage time
+                break;
+            }
+        }
+
+        // If the page is not found in any frame (page fault occurs)
+        if (!found) {
+            if (frames[j] == -1) {
+                pos = j; // If a frame is empty, use it
+            } else {
+                pos = findLRU(time, num_frames); // Find the least recently used frame
+            }
+            frames[pos] = pages[i];     // Replace the frame with the new page
+            time[pos] = ++counter;     // Update the usage time for the replaced frame
+            page_faults++;             // Increment the page fault count
+        }
+
+        // Print the current page and the state of the frames
+        printf("\n%12d |", pages[i]);
+        for (j = 0; j < num_frames; j++) {
+            if (frames[j] != -1)       // Print the content of the frame if it's not empty
+                printf(" %d", frames[j]);
+            else                       // Print '-' for empty frames
+                printf(" -");
+        }
+    }
+
+    // Print the total number of page faults at the end
+    printf("\n\nTotal Page Faults = %d\n", page_faults);
+
+    return 0; // End of the program
+}
+
+
+
+###### Page Replacement OPT
+
+#include <stdio.h>
+
+// Function to find the optimal frame to replace
+int findOPT(int frames[], int pages[], int num_frames, int num_pages, int current) {
+    int farthest = current, pos = -1, i, j;
+
+    // Iterate through each frame
+    for (i = 0; i < num_frames; i++) {
+        int found = 0;
+
+        // Check the future use of the current frame
+        for (j = current + 1; j < num_pages; j++) {
+            if (frames[i] == pages[j]) {
+                if (j > farthest) { // Find the frame that will not be used for the longest time
+                    farthest = j;
+                    pos = i;
+                }
+                found = 1;
+                break;
+            }
+        }
+
+        // If the frame is not used in the future, it should be replaced
+        if (!found) {
+            return i;
+        }
+    }
+
+    // If all frames are used in the future, return the one used farthest
+    return (pos == -1) ? 0 : pos;
+}
+
+int main() {
+    int frames[10], pages[30]; // Arrays to store frames and pages
+    int num_frames, num_pages, i, j, pos, page_faults = 0;
+
+    // Prompt the user for the number of frames
+    printf("Enter number of frames: ");
+    scanf("%d", &num_frames);
+
+    // Prompt the user for the number of pages
+    printf("Enter number of pages: ");
+    scanf("%d", &num_pages);
+
+    // Input the page reference string
+    printf("Enter page reference string: ");
+    for (i = 0; i < num_pages; i++)
+        scanf("%d", &pages[i]);
+
+    // Initialize all frames as empty
+    for (i = 0; i < num_frames; i++)
+        frames[i] = -1;
+
+    // Print the header for the output table
+    printf("\nPage Reference | Frames");
+    printf("\n---------------|------------------");
+
+    // Process each page in the reference string
+    for (i = 0; i < num_pages; i++) {
+        int found = 0; // Flag to check if the page is already in the frames
+
+        // Check if the page is already in one of the frames
+        for (j = 0; j < num_frames; j++) {
+            if (frames[j] == pages[i]) { // Page found in the frames
+                found = 1;
+                break;
+            }
+        }
+
+        // If the page is not found in the frames (page fault occurs)
+        if (!found) {
+            if (i < num_frames) {
+                pos = i; // Place the page in the next empty frame
+            } else {
+                pos = findOPT(frames, pages, num_frames, num_pages, i); // Find the optimal frame to replace
+            }
+            frames[pos] = pages[i]; // Replace the frame with the new page
+            page_faults++;         // Increment the page fault count
+        }
+
+        // Print the current page and the state of the frames
+        printf("\n%12d |", pages[i]);
+        for (j = 0; j < num_frames; j++) {
+            if (frames[j] != -1)  // Print the content of the frame if it's not empty
+                printf(" %d", frames[j]);
+            else                  // Print '-' for empty frames
+                printf(" -");
+        }
+    }
+
+    // Print the total number of page faults
+    printf("\n\nTotal Page Faults = %d\n", page_faults);
+
+    return 0; // End of the program
+}
+
+
+
+############# BANKERS_ALGORITHM
+
+#include <stdio.h>
+
+#define MAX_PROCESSES 5   // Maximum number of processes
+#define MAX_RESOURCES 3   // Maximum number of resources
+
+// Global matrices and arrays
+int available[MAX_RESOURCES];                // Available resources
+int maximum[MAX_PROCESSES][MAX_RESOURCES];   // Maximum resource demand of each process
+int allocation[MAX_PROCESSES][MAX_RESOURCES]; // Allocated resources for each process
+int need[MAX_PROCESSES][MAX_RESOURCES];      // Remaining resources needed by each process
+
+// Function to check if the system is in a safe state
+int checkSafeState() {
+    int work[MAX_RESOURCES];  // Work array to simulate available resources during safety check
+    int finish[MAX_PROCESSES] = {0};  // Finish array to mark completed processes
+    int safeSeq[MAX_PROCESSES];       // Array to store the safe sequence
+    int count = 0;                    // Counter for the safe sequence
+
+    // Initialize work array to available resources
+    for (int i = 0; i < MAX_RESOURCES; i++) {
+        work[i] = available[i];
+    }
+
+    // Try to find a safe sequence
+    while (count < MAX_PROCESSES) {
+        int found = 0;  // Flag to check if any process can be executed in this iteration
+
+        for (int p = 0; p < MAX_PROCESSES; p++) {
+            if (!finish[p]) {  // If process is not yet finished
+                int canAllocate = 1;
+
+                // Check if the process's need can be satisfied by the available resources
+                for (int r = 0; r < MAX_RESOURCES; r++) {
+                    if (need[p][r] > work[r]) {
+                        canAllocate = 0;  // Resources not sufficient
+                        break;
+                    }
+                }
+
+                // If resources can be allocated to process `p`
+                if (canAllocate) {
+                    // Add allocated resources of process `p` back to available (work array)
+                    for (int r = 0; r < MAX_RESOURCES; r++) {
+                        work[r] += allocation[p][r];
+                    }
+                    finish[p] = 1;              // Mark process as finished
+                    safeSeq[count++] = p;      // Add process to safe sequence
+                    found = 1;                 // A process was executed in this iteration
+                    break;
+                }
+            }
+        }
+
+        // If no process could be executed, system is in deadlock
+        if (!found) {
+            return 0; // No safe sequence found, system is in deadlock
+        }
+    }
+
+    // Print the safe sequence if found
+    printf("Safe Sequence: ");
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        printf("P%d ", safeSeq[i]);
+    }
+    printf("\n");
+
+    return 1; // System is in a safe state
+}
+
+// Function to calculate the need matrix
+void calculateNeed() {
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        for (int j = 0; j < MAX_RESOURCES; j++) {
+            need[i][j] = maximum[i][j] - allocation[i][j]; // Need = Maximum - Allocation
+        }
+    }
+}
+
+int main() {
+    // Input available resources
+    printf("Enter available resources: ");
+    for (int i = 0; i < MAX_RESOURCES; i++) {
+        scanf("%d", &available[i]);
+    }
+
+    // Input maximum resource matrix
+    printf("Enter maximum resource matrix:\n");
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        printf("P%d: ", i);
+        for (int j = 0; j < MAX_RESOURCES; j++) {
+            scanf("%d", &maximum[i][j]);
+        }
+    }
+
+    // Input allocation matrix
+    printf("Enter allocation matrix:\n");
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        printf("P%d: ", i);
+        for (int j = 0; j < MAX_RESOURCES; j++) {
+            scanf("%d", &allocation[i][j]);
+        }
+    }
+
+    // Calculate the need matrix
+    calculateNeed();
+
+    // Check if the system is in a safe state
+    if (checkSafeState()) {
+        printf("System is in a safe state.\n");
+    } else {
+        printf("System is in a deadlock state.\n");
+    }
+
+    return 0; // End of the program
+}
+
+
+
+
+
+###################### CPU SCHEDULING
+######################### FCFS
+
+
+
+#include <stdio.h>
+
+// Structure to hold process details
+struct Process {
+    int pid;          // Process ID
+    int arrivalTime;  // Arrival time of the process
+    int burstTime;    // Burst time (CPU time required)
+    int completionTime; // Completion time (time at which process finishes)
+};
+
+// Function to sort processes by arrival time (FCFS)
+void sortByArrivalTime(struct Process p[], int n) {
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (p[j].arrivalTime > p[j + 1].arrivalTime) {
+                struct Process temp = p[j];
+                p[j] = p[j + 1];
+                p[j + 1] = temp;
+            }
+        }
+    }
+}
+
+// Function to implement FCFS Scheduling
+void FCFS(struct Process p[], int n) {
+    int waitTime[n], turnAroundTime[n];
+    int totalWaitTime = 0, totalTurnAroundTime = 0;
+
+    // Sort processes by arrival time
+    sortByArrivalTime(p, n);
+
+    // Calculate completion time, waiting time and turnaround time for each process
+    p[0].completionTime = p[0].arrivalTime + p[0].burstTime;
+    turnAroundTime[0] = p[0].burstTime;  // Turnaround time for the first process
+    waitTime[0] = 0;  // First process has no waiting time
+
+    for (int i = 1; i < n; i++) {
+        if (p[i].arrivalTime > p[i - 1].completionTime) {
+            // If next process arrives after the previous one completes
+            p[i].completionTime = p[i].arrivalTime + p[i].burstTime;
+        } else {
+            // If next process arrives before or when the previous one completes
+            p[i].completionTime = p[i - 1].completionTime + p[i].burstTime;
+        }
+        
+        turnAroundTime[i] = p[i].completionTime - p[i].arrivalTime;
+        waitTime[i] = turnAroundTime[i] - p[i].burstTime;
+    }
+
+    // Display the results
+    printf("PID\tArrival\tBurst\tCompletion\tWaiting\tTurnaround\n");
+    for (int i = 0; i < n; i++) {
+        totalWaitTime += waitTime[i];
+        totalTurnAroundTime += turnAroundTime[i];
+        printf("%d\t%d\t%d\t%d\t\t%d\t%d\n", p[i].pid, p[i].arrivalTime, p[i].burstTime, p[i].completionTime, waitTime[i], turnAroundTime[i]);
+    }
+
+    printf("\nAverage Waiting Time: %.2f\n", (float)totalWaitTime / n);
+    printf("Average Turnaround Time: %.2f\n", (float)totalTurnAroundTime / n);
+}
+
+int main() {
+    int n;
+
+    // Get number of processes
+    printf("Enter the number of processes: ");
+    scanf("%d", &n);
+
+    struct Process p[n];
+
+    // Get process details from user
+    for (int i = 0; i < n; i++) {
+        printf("Enter arrival time and burst time for process %d: ", i + 1);
+        p[i].pid = i + 1;
+        scanf("%d %d", &p[i].arrivalTime, &p[i].burstTime);
+    }
+
+    // Call FCFS scheduling function
+    FCFS(p, n);
+
+    return 0;
+}
+
+
+
+
+######################### SJF
+
+
+
+#include <stdio.h>
+
+struct Process {
+    int pid;          
+    int arrivalTime;  
+    int burstTime;    
+    int waitingTime;  
+    int turnAroundTime; 
+    int completionTime; 
+    int isCompleted;  
+};
+void sortByArrivalAndBurstTime(struct Process p[], int n) {
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (p[j].arrivalTime > p[j + 1].arrivalTime) {
+                struct Process temp = p[j];
+                p[j] = p[j + 1];
+                p[j + 1] = temp;
+            }
+        }
+    }
+}
+int findShortestJob(struct Process p[], int n, int currentTime) {
+    int index = -1;
+    int minBurst = 9999;  
+    for (int i = 0; i < n; i++) {
+        if (p[i].arrivalTime <= currentTime && !p[i].isCompleted && p[i].burstTime < minBurst) {
+            minBurst = p[i].burstTime;
+            index = i;
+        }
+    }
+    return index;
+}
+void SJF(struct Process p[], int n) {
+    int currentTime = 0;
+    int completedProcesses = 0;
+    int totalWaitingTime = 0;
+    int totalTurnAroundTime = 0;   
+    while (completedProcesses < n) {
+        int index = findShortestJob(p, n, currentTime);        
+        if (index == -1) {
+            currentTime++;
+            continue;
+        }
+        p[index].completionTime = currentTime + p[index].burstTime;
+        p[index].turnAroundTime = p[index].completionTime - p[index].arrivalTime;
+        p[index].waitingTime = p[index].turnAroundTime - p[index].burstTime;
+        totalWaitingTime += p[index].waitingTime;
+        totalTurnAroundTime += p[index].turnAroundTime;
+        currentTime += p[index].burstTime;
+        p[index].isCompleted = 1;  
+        completedProcesses++;
+    }  
+    printf("PID\tArrival\tBurst\tCompletion\tWaiting\tTurnaround\n");
+    for (int i = 0; i < n; i++) {
+        printf("%d\t%d\t%d\t%d\t\t%d\t%d\n", p[i].pid, p[i].arrivalTime, p[i].burstTime, p[i].completionTime, p[i].waitingTime, p[i].turnAroundTime);
+    }
+    printf("\nAverage Waiting Time: %.2f\n", (float)totalWaitingTime / n);
+    printf("Average Turnaround Time: %.2f\n", (float)totalTurnAroundTime / n);
+}
+
+int main() {
+    int n;
+    printf("Enter the number of processes: ");
+    scanf("%d", &n);
+    struct Process p[n];
+    for (int i = 0; i < n; i++) {
+        printf("Enter arrival time and burst time for process %d: ", i + 1);
+        p[i].pid = i + 1;
+        scanf("%d %d", &p[i].arrivalTime, &p[i].burstTime);
+        p[i].isCompleted = 0;  
+    }
+    SJF(p, n);
+    return 0;
+}
+
+
